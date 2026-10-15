@@ -2,221 +2,143 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import statsmodels.api as sm
 
 st.set_page_config(
-    page_title="CityInsight | Analisis Kota",
-    page_icon="🏙️",
+    page_title="Regresi Kota Makassar",
+    page_icon="📊",
     layout="wide"
 )
 
-# =========================
-# DATA CONTOH
-# =========================
-data = pd.DataFrame({
-    "Kota": ["Jakarta", "Bandung", "Surabaya", "Medan", "Makassar"],
-    "IPM": [83.5, 82.3, 82.1, 75.2, 82.4],
-    "Pertumbuhan Ekonomi (%)": [4.9, 5.4, 5.1, 4.8, 5.0],
-    "Pengangguran (%)": [6.2, 7.2, 5.5, 7.0, 5.8],
-    "Pendapatan per Kapita (Juta Rp)": [120.5, 78.3, 74.6, 52.7, 68.9]
-})
+st.title("📊 Dashboard Regresi Kota Makassar")
+st.caption("Analisis indikator fiskal dan pembangunan tahun 2014–2024")
 
-# =========================
-# SIDEBAR
-# =========================
-st.sidebar.title("🏙️ CityInsight")
-st.sidebar.caption("Perbandingan & Eksplorasi Data Kota")
+# Membaca dataset dari GitHub
+@st.cache_data
+def load_data():
+    return pd.read_csv("dataset_fiskal.csv")
 
-halaman = st.sidebar.radio(
-    "Navigasi",
-    ["Beranda", "Perbandingan Kota",
-     "Eksplorasi Data", "Analisis Mendalam"]
-)
-
-st.sidebar.divider()
-st.sidebar.caption("Dashboard analisis data perkotaan")
-
-# =========================
-# FILTER DATA
-# =========================
-st.title("Dashboard Analisis Antar Kota")
-st.write(
-    "Bandingkan indikator pembangunan dan ekonomi "
-    "serta eksplorasi hubungan antarvariabel."
-)
-
-pilihan_kota = st.multiselect(
-    "Pilih kota untuk dianalisis",
-    data["Kota"].tolist(),
-    default=data["Kota"].tolist()
-)
-
-df = data[data["Kota"].isin(pilihan_kota)]
-
-if df.empty:
-    st.warning("Pilih minimal satu kota untuk menampilkan analisis.")
+try:
+    data = load_data()
+except Exception as e:
+    st.error("Dataset tidak ditemukan. Pastikan dataset_fiskal.csv ada di repository GitHub.")
     st.stop()
 
-# =========================
-# BERANDA
-# =========================
-if halaman == "Beranda":
-    st.subheader("Ringkasan Data")
+# Filter Kota Makassar
+df = data[data["Kota"].str.strip().str.lower() == "kota makassar"].copy()
+df = df.sort_values("Tahun")
 
-    c1, c2, c3, c4 = st.columns(4)
+if df.empty:
+    st.error("Data Kota Makassar tidak ditemukan.")
+    st.stop()
 
-    c1.metric("Jumlah Kota", len(df))
-    c2.metric("Rata-rata IPM", f"{df['IPM'].mean():.2f}")
-    c3.metric(
-        "Rata-rata Pertumbuhan",
-        f"{df['Pertumbuhan Ekonomi (%)'].mean():.2f}%"
-    )
-    c4.metric(
-        "Rata-rata Pengangguran",
-        f"{df['Pengangguran (%)'].mean():.2f}%"
-    )
+# Sidebar
+st.sidebar.title("Pengaturan Analisis")
+tahun = st.sidebar.slider(
+    "Rentang Tahun",
+    int(df["Tahun"].min()),
+    int(df["Tahun"].max()),
+    (int(df["Tahun"].min()), int(df["Tahun"].max()))
+)
 
-    st.divider()
+df = df[df["Tahun"].between(tahun[0], tahun[1])].copy()
 
-    kiri, kanan = st.columns(2)
+st.subheader("Ringkasan Data")
 
-    with kiri:
-        st.subheader("Perbandingan IPM")
-        fig = px.bar(
-            df.sort_values("IPM", ascending=False),
-            x="Kota",
-            y="IPM",
-            color="Kota",
-            text="IPM",
-            title="Indeks Pembangunan Manusia"
-        )
-        fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+c1, c2, c3 = st.columns(3)
+c1.metric("Jumlah Observasi", len(df))
+c2.metric("Rata-rata IPM", f"{df['IPM'].mean():.2f}")
+c3.metric("Rata-rata Pertumbuhan Ekonomi", f"{df['PE'].mean():.2f}")
 
-    with kanan:
-        st.subheader("Pertumbuhan Ekonomi")
-        fig = px.bar(
-            df,
-            x="Kota",
-            y="Pertumbuhan Ekonomi (%)",
-            color="Kota",
-            title="Pertumbuhan Ekonomi per Kota"
-        )
-        fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+st.divider()
 
-    st.subheader("Data Perbandingan Kota")
-    st.dataframe(df, use_container_width=True, hide_index=True)
+# Grafik tren
+kiri, kanan = st.columns(2)
 
-    if len(df) > 0:
-        kota_ipm = df.loc[df["IPM"].idxmax()]
-        st.info(
-            f"IPM tertinggi pada data contoh ini adalah "
-            f"{kota_ipm['Kota']} "
-            f"({kota_ipm['IPM']:.1f})."
-        )
-
-# =========================
-# PERBANDINGAN KOTA
-# =========================
-elif halaman == "Perbandingan Kota":
-    st.subheader("Perbandingan Indikator")
-
-    indikator = st.selectbox(
-        "Pilih indikator",
-        [
-            "IPM",
-            "Pertumbuhan Ekonomi (%)",
-            "Pengangguran (%)",
-            "Pendapatan per Kapita (Juta Rp)"
-        ]
-    )
-
-    fig = px.bar(
-        df.sort_values(indikator, ascending=False),
-        x="Kota",
-        y=indikator,
-        color="Kota",
-        text=indikator,
-        title=f"Perbandingan {indikator} Antar Kota"
+with kiri:
+    st.subheader("Tren IPM")
+    fig = px.line(
+        df, x="Tahun", y="IPM",
+        markers=True,
+        title="Perubahan IPM Kota Makassar"
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Peringkat Kota")
-    peringkat = df.sort_values(indikator, ascending=False)
-    st.dataframe(peringkat, use_container_width=True, hide_index=True)
-
-# =========================
-# EKSPLORASI DATA
-# =========================
-elif halaman == "Eksplorasi Data":
-    st.subheader("Eksplorasi Variabel")
-
-    x_var = st.selectbox(
-        "Variabel sumbu X",
-        data.select_dtypes(include="number").columns,
-        index=3
-    )
-
-    y_var = st.selectbox(
-        "Variabel sumbu Y",
-        data.select_dtypes(include="number").columns,
-        index=0
-    )
-
-    fig = px.scatter(
-        df,
-        x=x_var,
-        y=y_var,
-        color="Kota",
-        text="Kota",
-        hover_data=["IPM", "Pertumbuhan Ekonomi (%)"],
-        title=f"Hubungan {x_var} dan {y_var}"
+with kanan:
+    st.subheader("Tren Pendapatan Asli Daerah")
+    fig = px.line(
+        df, x="Tahun", y="PAD",
+        markers=True,
+        title="Perubahan PAD Kota Makassar"
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Statistik Deskriptif")
-    st.dataframe(
-        df.select_dtypes(include="number").describe().T,
-        use_container_width=True
-    )
+st.subheader("Dataset Kota Makassar")
+st.dataframe(df, use_container_width=True, hide_index=True)
 
-    st.download_button(
-        "📥 Unduh Data CSV",
-        data=df.to_csv(index=False).encode("utf-8"),
-        file_name="data_perbandingan_kota.csv",
-        mime="text/csv"
-    )
+st.divider()
+st.subheader("Regresi Linear Berganda")
 
-# =========================
-# ANALISIS MENDALAM
-# =========================
-elif halaman == "Analisis Mendalam":
-    st.subheader("Analisis Korelasi")
+# Pilih variabel
+angka = [
+    c for c in df.select_dtypes(include="number").columns
+    if c != "Tahun"
+]
 
-    angka = df.select_dtypes(include="number")
+variabel_y = st.selectbox(
+    "Variabel dependen (Y)",
+    angka,
+    index=angka.index("IPM") if "IPM" in angka else 0
+)
 
-    if len(angka.columns) >= 2 and len(df) >= 2:
-        korelasi = angka.corr()
+pilihan_x = [c for c in angka if c != variabel_y]
+variabel_x = st.multiselect(
+    "Variabel independen (X)",
+    pilihan_x,
+    default=[
+        c for c in ["PAD", "ICT"]
+        if c in pilihan_x
+    ]
+)
 
-        fig = px.imshow(
-            korelasi,
-            text_auto=".2f",
-            color_continuous_scale="RdBu_r",
-            zmin=-1,
-            zmax=1,
-            title="Matriks Korelasi Antarindikator"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.write(
-            "Korelasi menunjukkan arah dan kekuatan hubungan "
-            "linear antarvariabel. Korelasi tidak membuktikan "
-            "hubungan sebab-akibat."
-        )
+if st.button("Jalankan Regresi", type="primary"):
+    if len(variabel_x) == 0:
+        st.warning("Pilih minimal satu variabel X.")
+    elif len(df) <= len(variabel_x) + 1:
+        st.warning("Observasi terlalu sedikit untuk jumlah variabel X.")
     else:
-        st.warning(
-            "Pilih minimal dua kota agar korelasi dapat dihitung."
-        )
+        model_data = df[[variabel_y] + variabel_x].dropna()
 
-    st.subheader("Ringkasan Statistik")
-    st.write(angka.describe())
+        if len(model_data) <= len(variabel_x) + 1:
+            st.warning("Data valid tidak cukup untuk menjalankan model.")
+        else:
+            X = sm.add_constant(model_data[variabel_x])
+            y = model_data[variabel_y]
+
+            model = sm.OLS(y, X).fit()
+
+            a, b, c = st.columns(3)
+            a.metric("R-squared", f"{model.rsquared:.4f}")
+            b.metric("Adjusted R-squared", f"{model.rsquared_adj:.4f}")
+            c.metric("Prob (F-statistic)", f"{model.f_pvalue:.4f}")
+
+            st.subheader("Koefisien Regresi")
+            hasil = pd.DataFrame({
+                "Koefisien": model.params,
+                "P-value": model.pvalues
+            })
+            st.dataframe(hasil, use_container_width=True)
+
+            st.subheader("Ringkasan Model")
+            st.code(model.summary().as_text())
+
+            st.subheader("Nilai Aktual dan Prediksi")
+            hasil_prediksi = model_data.copy()
+            hasil_prediksi["Prediksi"] = model.predict(X)
+            st.dataframe(hasil_prediksi, use_container_width=True)
+
+            st.caption(
+                "Interpretasi perlu mempertimbangkan jumlah observasi, "
+                "asumsi model, dan keterbatasan data. "
+                "Korelasi atau regresi tidak membuktikan sebab-akibat."
+            )
